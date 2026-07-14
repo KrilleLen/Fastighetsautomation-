@@ -1,0 +1,12 @@
+{
+  "name": "Kundradarn",
+  "short_name": "Kundradarn",
+  "description": "Christoffers smarta kundradar för mäklarrelationer.",
+  "lang": "sv-SE",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0a1220",
+  "theme_color": "#0a1220",
+  "icons": [{"src":"./icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
