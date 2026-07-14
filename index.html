@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0a1220">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Kundradarn">
+  <meta name="description" content="Christoffers smarta kundradar för mäklarrelationer.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon.svg">
+  <link rel="icon" href="./icon.svg">
+  <title>Kundradarn</title>
+  <style>
+    :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0a1220;color:#f7f9fc}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% -20%,#1e4b77 0,transparent 45%),#0a1220;padding:24px}
+    .boot{width:min(430px,100%);padding:30px 24px;border:1px solid #31445e;border-radius:28px;background:#101c2d;box-shadow:0 30px 80px #0008;text-align:center}
+    .radar{width:82px;height:82px;margin:0 auto 18px;border:3px solid #38bdf8;border-radius:50%;position:relative;box-shadow:0 0 42px #38bdf844 inset}
+    .radar:before,.radar:after{content:"";position:absolute;inset:17px;border:2px solid #38bdf877;border-radius:50%}.radar:after{inset:35px;background:#4ade80;border:0;box-shadow:0 0 18px #4ade80}
+    .sweep{position:absolute;left:39px;top:39px;width:34px;height:3px;background:#e0f2fe;transform-origin:left center;animation:sweep 1.1s linear infinite;border-radius:10px}
+    @keyframes sweep{to{transform:rotate(360deg)}}h1{font-size:28px;margin:0 0 8px}p{color:#aab9cc;line-height:1.5;margin:0}.bar{height:7px;background:#22344d;border-radius:20px;overflow:hidden;margin:22px 0 10px}.bar span{display:block;height:100%;width:10%;background:linear-gradient(90deg,#38bdf8,#4ade80);transition:width .25s}.small{font-size:13px}.error{color:#fecaca}.retry{display:none;margin:18px auto 0;border:0;border-radius:14px;padding:12px 16px;font-weight:700;background:#2563eb;color:white}
+  </style>
+</head>
+<body>
+  <main class="boot">
+    <div class="radar"><span class="sweep"></span></div>
+    <h1>Kundradarn</h1>
+    <p id="status">Startar den säkra produktionsappen…</p>
+    <div class="bar"><span id="bar"></span></div>
+    <p class="small">Kunddata laddas aldrig upp till GitHub. Den sparas lokalt och kan PIN-krypteras.</p>
+    <button id="retry" class="retry" onclick="location.reload()">Försök igen</button>
+  </main>
+<script>
+(() => {
+  'use strict';
+  const VERSION = 'c3d44a6002e6b2190b7262c498c6c881';
+  const PARTS = Array.from({length: 8}, (_, i) => `./deploy-payload/part${String(i).padStart(2,'0')}`);
+  const status = document.getElementById('status');
+  const bar = document.getElementById('bar');
+  const retry = document.getElementById('retry');
+  const setProgress = (text, pct) => { status.textContent = text; bar.style.width = pct + '%'; };
+  const bytesFromBase64 = text => {
+    const binary = atob(text.replace(/\s/g,''));
+    const bytes = new Uint8Array(binary.length);
+    for (let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+    return bytes;
+  };
+  const inflateRaw = async bytes => {
+    if (!('DecompressionStream' in window)) throw new Error('Din Safari-version saknar nödvändigt stöd för säker lokal uppackning.');
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  };
+  const unzip = async bytes => {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const decoder = new TextDecoder();
+    const files = new Map();
+    let offset = 0;
+    while (offset + 30 <= bytes.length && view.getUint32(offset, true) === 0x04034b50) {
+      const flags = view.getUint16(offset + 6, true);
+      const method = view.getUint16(offset + 8, true);
+      const compressedSize = view.getUint32(offset + 18, true);
+      const nameLength = view.getUint16(offset + 26, true);
+      const extraLength = view.getUint16(offset + 28, true);
+      if (flags & 0x08) throw new Error('Paketformatet använder en oväntad datadeskriptor.');
+      const nameStart = offset + 30;
+      const dataStart = nameStart + nameLength + extraLength;
+      const name = decoder.decode(bytes.slice(nameStart, nameStart + nameLength));
+      const packed = bytes.slice(dataStart, dataStart + compressedSize);
+      let data;
+      if (method === 0) data = packed;
+      else if (method === 8) data = await inflateRaw(packed);
+      else throw new Error(`Okänd komprimeringsmetod ${method}.`);
+      if (!name.endsWith('/')) files.set(name, data);
+      offset = dataStart + compressedSize;
+    }
+    return files;
+  };
+  const compile = files => {
+    const text = path => {
+      const data = files.get('kundradarn_production/' + path);
+      if (!data) throw new Error(`Produktionsfil saknas: ${path}`);
+      return new TextDecoder().decode(data);
+    };
+    const css = text('styles.css');
+    const js = text('app.js').replace(/<\/script/gi,'<\\/script');
+    let html = text('index.html');
+    html = html.replace(/<link rel="stylesheet" href="\.\/styles\.css">/, `<style>${css}</style>`);
+    html = html.replace(/<script src="\.\/app\.js" defer><\/script>/, `<script>${js}<\/script>`);
+    html = html.replace(/\.\/icons\/apple-touch-icon\.png/g,'./icon.svg');
+    html = html.replace(/\.\/icons\/icon-192\.png/g,'./icon.svg');
+    return html;
+  };
+  const launch = html => { document.open(); document.write(html); document.close(); };
+  const runtimeRequest = new Request(`./__kundradarn_runtime_${VERSION}.html`);
+  const run = async () => {
+    try {
+      if ('caches' in window) {
+        const cache = await caches.open('kundradarn-runtime-' + VERSION);
+        const cached = await cache.match(runtimeRequest);
+        if (cached) { setProgress('Öppnar Kundradarn…', 100); return launch(await cached.text()); }
+      }
+      setProgress('Hämtar produktionspaketet…', 18);
+      const responses = await Promise.all(PARTS.map(url => fetch(url, {cache:'no-cache'})));
+      responses.forEach((r,i) => { if (!r.ok) throw new Error(`Paketdel ${i+1} kunde inte hämtas.`); });
+      const base64 = (await Promise.all(responses.map(r => r.text()))).join('');
+      setProgress('Verifierar och packar upp lokalt…', 48);
+      const files = await unzip(bytesFromBase64(base64));
+      setProgress('Bygger den installerade appen…', 78);
+      const html = compile(files);
+      if ('caches' in window) {
+        const cache = await caches.open('kundradarn-runtime-' + VERSION);
+        await cache.put(runtimeRequest, new Response(html, {headers:{'Content-Type':'text/html; charset=utf-8'}}));
+      }
+      setProgress('Klar', 100);
+      launch(html);
+    } catch (error) {
+      console.error(error);
+      status.textContent = 'Kunde inte starta: ' + (error?.message || error);
+      status.classList.add('error');
+      bar.style.width = '100%';
+      retry.style.display = 'block';
+    }
+  };
+  run();
+})();
+</script>
+</body>
+</html>
