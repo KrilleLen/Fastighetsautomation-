@@ -1,0 +1,41 @@
+name: Bootstrap Kundradarn
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    if: ${{ hashFiles('deploy-payload/part00') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify and unpack production build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat deploy-payload/part* > /tmp/kundradarn.b64
+          base64 --decode /tmp/kundradarn.b64 > /tmp/kundradarn.zip
+          echo "c3d44a6002e6b2190b7262c498c6c881e0337d9fe8ddc663478f80c0f369c26f  /tmp/kundradarn.zip" | sha256sum --check --strict
+          rm -rf /tmp/kundradarn-unpacked
+          mkdir -p /tmp/kundradarn-unpacked
+          unzip -q /tmp/kundradarn.zip -d /tmp/kundradarn-unpacked
+          cp -a /tmp/kundradarn-unpacked/kundradarn_production/. .
+          rm -rf deploy-payload
+          rm -f .github/workflows/bootstrap-kundradarn.yml
+
+      - name: Commit production app
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Publish Kundradarn production app"
+          git push
